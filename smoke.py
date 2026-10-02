@@ -26,3 +26,10 @@ else:
 with urllib.request.urlopen('http://localhost:3002', timeout=10) as response:
     assert b'Security scanner' in response.read()
 print('Compose smoke passed: API, PostgreSQL queue, Redis, worker, demo target and Next.js')
+
+with urllib.request.urlopen('http://localhost:3002/api/targets', timeout=10) as response:
+    assert json.load(response)[0]['id']=='demo-weak'
+req=urllib.request.Request('http://localhost:3002/api/scans', data=b'{"target_id":"demo-hardened"}', headers={'Content-Type':'application/json','Origin':'http://localhost:3002','Idempotency-Key':'dashboard-smoke'})
+with urllib.request.urlopen(req, timeout=10) as response:
+    assert response.status==202
+print('Dashboard API proxy submission passed')

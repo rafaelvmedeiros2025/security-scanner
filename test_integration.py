@@ -66,3 +66,38 @@ async def test_expired_lease_and_retry_exhaustion(runtime):
     third=await claim(app.state.pool)
     await finish(app.state.pool,third,error=True)
     assert (await client.get('/scans/'+str(third['id']))).json()['status']=='failed'
+
+@pytest.mark.asyncio
+async def test_concurrent_idempotent_submissions(runtime):
+    import asyncio
+    _,client=runtime
+    results=await asyncio.gather(*(create(client,'parallel') for _ in range(8)))
+    assert sum(r.status_code==202 for r in results)==1
+    assert len({r.json()['id'] for r in results})==1
+
+@pytest.mark.asyncio
+async def test_redis_outage_preserves_committed_job(runtime):
+    from store import claim
+    app,client=runtime
+    original=app.state.redis
+    class Offline:
+        async def lpush(self,*args):
+            raise ConnectionError('Redis unavailable')
+    app.state.redis=Offline()
+    try:
+        response=await create(client)
+        assert response.status_code==202
+        assert str((await claim(app.state.pool))['id'])==response.json()['id']
+    finally:
+        app.state.redis=original
+
+@pytest.mark.asyncio
+async def test_final_expired_lease_is_terminal(runtime):
+    from store import claim
+    app,client=runtime
+    await create(client)
+    job=await claim(app.state.pool)
+    async with app.state.pool.connection() as conn:
+        await conn.execute("UPDATE scans SET attempts=3, lease_until=now()-interval '1 second'")
+    assert await claim(app.state.pool) is None
+    assert (await client.get('/scans/'+str(job['id']))).json()['status']=='failed'
