@@ -1,0 +1,36 @@
+name: CI
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: scanner
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: scanner
+        ports: ['5432:5432']
+        options: --health-cmd "pg_isready -U scanner" --health-interval 2s --health-retries 30
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+    env:
+      DATABASE_URL: postgresql://scanner:test@localhost/scanner
+      REDIS_URL: redis://localhost:6379
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - run: pip install -r requirements.txt
+      - run: pytest -q
+  compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose up --build -d
+      - run: python smoke.py
+      - if: always()
+        run: docker compose logs --no-color && docker compose down -v
